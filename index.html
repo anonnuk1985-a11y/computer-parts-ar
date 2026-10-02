@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="th" class="h-full bg-slate-950">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>เกมแยกประเภทอุปกรณ์คอมพิวเตอร์ AR (Computer Parts AR Game)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
+    <!-- Google Fonts: Kanit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700;800&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- MediaPipe Hands & Camera Utils for AR Tracking -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        * {
+            font-family: 'Kanit', 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .glow-cyan {
+            box-shadow: 0 0 25px rgba(6, 182, 212, 0.4);
+        }
+
+        .glow-purple {
+            box-shadow: 0 0 25px rgba(168, 85, 247, 0.4);
+        }
+
+        .glow-gold {
+            box-shadow: 0 0 25px rgba(234, 179, 8, 0.4);
+        }
+
+        /* Pulsing camera active indicator */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .camera-pulse {
+            animation: pulse-ring 2s infinite ease-in-out;
+        }
+
+        /* Prevent scrollbars */
+        body, html {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body class="h-full w-full bg-slate-950 text-white relative flex flex-col justify-between overflow-hidden select-none">
+
+    <!-- Hidden Video Element for MediaPipe Hand Tracking -->
+    <video id="webcam" class="hidden" autoplay muted playsinline></video>
+
+    <!-- Game Background & Interactive Canvas -->
+    <div id="gameContainer" class="relative w-full h-full flex items-center justify-center overflow-hidden">
+        <!-- Render Canvas for AR, Game Objects & Pinch Cursor -->
+        <canvas id="gameCanvas" class="absolute inset-0 w-full h-full object-cover z-0"></canvas>
+
+        <!-- Notification Banner / Status Toast -->
+        <div id="trackingBanner" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 px-5 py-2.5 rounded-2xl bg-slate-900/90 border border-cyan-500/40 text-cyan-300 text-xs sm:text-sm font-semibold shadow-xl flex items-center justify-between gap-3 transition-all max-w-[90%] sm:max-w-md">
+            <div class="flex items-center gap-2 truncate">
+                <span id="cameraStatusDot" class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping shrink-0"></span>
+                <span id="trackingBannerText" class="truncate">กล้องเปิดอยู่: ใช้ท่านิ้วชี้จีบนิ้วโป้ง เพื่อจับอุปกรณ์</span>
+            </div>
+            <button id="btnRetryCamera" class="hidden shrink-0 px-2.5 py-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/40 border border-cyan-400/50 text-cyan-200 rounded-lg transition-all">
+                <i class="fa-solid fa-camera mr-1"></i>ขอสิทธิ์กล้องใหม่
+            </button>
+        </div>
+
+        <!-- START / MAIN MENU MODAL -->
+        <div id="startModal" class="absolute inset-0 flex items-center justify-center p-4 z-40 bg-slate-950/80 backdrop-blur-md">
+            <div class="max-w-md w-full glass-panel rounded-3xl p-6 sm:p-8 text-center shadow-2xl border border-cyan-500/30 flex flex-col items-center">
+                
+                <div class="w-20 h-20 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-4xl mb-4 shadow-lg shadow-cyan-500/30 animate-bounce">
+                    <i class="fa-solid fa-microchip text-white"></i>
+                </div>
+
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-300 to-blue-400 mb-2">
+                    Computer Parts AR
+                </h1>
+                <p class="text-xs sm:text-sm text-slate-300 mb-6 font-normal">
+                    เกมแยกประเภทอุปกรณ์คอมพิวเตอร์ (ป.4 - ป.6) <br>
+                    เลือกโหมดเพื่อเริ่มต้นการแข่งขัน
+                </p>
+
+                <!-- Player Name Input Field -->
+                <div class="mb-5 w-full">
+                    <input type="text" id="playerNameInput" maxlength="15" placeholder="กรอกชื่อของคุณ..." class="w-full px-5 py-3 rounded-2xl bg-slate-900/90 border-2 border-cyan-500/50 text-white placeholder-slate-400 focus:outline-none focus:border-cyan-400 focus:ring-4 focus:ring-cyan-500/30 text-center text-base sm:text-lg font-semibold shadow-inner transition-all">
+                    <p id="nameWarning" class="text-rose-400 text-xs mt-1.5 hidden">⚠️ กรุณากรอกชื่อก่อนเข้าเล่นเกม!</p>
+                </div>
+
+                <!-- Single Player & Create Room Buttons -->
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-4 w-full">
+                    <button id="btnStartApp" class="w-full sm:w-1/2 py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm sm:text-base shadow-lg shadow-cyan-500/25 transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-user"></i>
+                        <span>เล่นคนเดียว</span>
+                    </button>
+                    <button id="btnCreateRoom" class="w-full sm:w-1/2 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-sm sm:text-base shadow-lg shadow-purple-500/25 transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-users"></i>
+                        <span>สร้างห้องแข่ง</span>
+                    </button>
+                </div>
+
+                <!-- Join Room Form -->
+                <div class="flex items-center justify-center gap-2 w-full mb-6 bg-slate-900/60 p-2 rounded-2xl border border-white/10">
+                    <input type="text" id="joinRoomCodeInput" maxlength="6" placeholder="รหัสห้อง 6 หลัก" class="w-1/2 px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-center font-mono font-bold tracking-widest text-sm focus:outline-none focus:border-pink-500">
+                    <button id="btnJoinRoom" class="w-1/2 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 shadow-md">
+                        <i class="fa-solid fa-right-to-bracket"></i>
+                        <span>เข้าร่วมห้อง</span>
+                    </button>
+                </div>
+
+                <!-- Leaderboard Section -->
+                <div class="w-full bg-slate-900/80 rounded-2xl p-4 border border-white/10 text-left">
+                    <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+                        <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-trophy text-amber-400"></i>
+                            อันดับสูงสุด (Top Scores)
+                        </span>
+                        <span class="text-[10px] text-slate-400">อัปเดตแบบเรียลไทม์</span>
+                    </div>
+                    <div id="leaderboardList" class="space-y-2 max-h-36 overflow-y-auto pr-1">
+                        <div class="text-center text-slate-400 text-xs py-3">กำลังโหลดข้อมูลกระดานคะแนน...</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- IN-GAME HUD OVERLAY -->
+        <div id="hudOverlay" class="hidden absolute top-4 left-4 right-4 flex items-center justify-between gap-2 p-3 sm:p-4 rounded-2xl glass-panel pointer-events-none z-20">
+            <!-- Level Info & Quest Target -->
+            <div class="flex items-center gap-3">
+                <span class="px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold text-xs sm:text-sm flex items-center gap-1.5 shadow">
+                    <i class="fa-solid fa-layer-group"></i>
+                    <span id="levelBadge">ด่าน 1/15</span>
+                </span>
+                <div class="text-xs sm:text-base font-semibold text-white drop-shadow" id="targetPrompt">
+                    เป้าหมาย: <span class="text-yellow-300 font-extrabold" id="targetText">...</span>
+                </div>
+            </div>
+
+            <!-- Opponent Status (Multiplayer Mode) -->
+            <div id="opponentHud" class="hidden items-center gap-3 bg-pink-500/20 border border-pink-500/40 px-3 py-1.5 rounded-xl text-pink-200 text-xs">
+                <i class="fa-solid fa-user-ninja text-pink-400 text-base"></i>
+                <div>
+                    <div class="font-bold text-white flex items-center gap-1">
+                        <span id="oppName">คู่แข่ง</span>
+                        <span class="text-[10px] bg-pink-600 px-1.5 py-0.5 rounded font-mono" id="oppLevel">ด่าน 1</span>
+                    </div>
+                    <div class="text-[11px] text-pink-300">
+                        คะแนน: <span id="oppScore" class="font-bold text-yellow-300">0</span> | ❤️ <span id="oppLives">3</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Player Timer, Lives & Score -->
+            <div class="flex items-center gap-3 sm:gap-5">
+                <div class="flex items-center gap-1 text-rose-400 font-bold text-sm sm:text-lg">
+                    <i class="fa-solid fa-heart animate-pulse"></i>
+                    <span id="livesText">3</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-amber-300 font-bold text-sm sm:text-lg">
+                    <i class="fa-solid fa-clock"></i>
+                    <span id="timerText" class="font-mono">30</span>s
+                </div>
+                <div class="flex items-center gap-1.5 text-cyan-300 font-extrabold text-sm sm:text-xl">
+                    <i class="fa-solid fa-star text-amber-400"></i>
+                    <span id="scoreText" class="font-mono">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TUTORIAL MODAL -->
+        <div id="tutorialModal" class="hidden absolute inset-0 flex items-center justify-center p-4 glass-panel z-40">
+            <div class="max-w-md w-full bg-slate-900/95 rounded-3xl p-6 sm:p-8 border border-cyan-500/40 shadow-2xl text-center">
+                <div class="w-16 h-16 rounded-2xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-3xl mx-auto mb-4 border border-cyan-500/30">
+                    <i class="fa-solid fa-hand-pointer"></i>
+                </div>
+                <h2 class="text-xl sm:text-2xl font-bold text-white mb-3">วิธีควบคุมและเข้าเล่น</h2>
+                
+                <div class="space-y-3 text-left text-xs sm:text-sm text-slate-300 mb-6 bg-slate-950/60 p-4 rounded-2xl border border-white/10">
+                    <div class="flex items-start gap-3">
+                        <div class="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">1</div>
+                        <p><strong class="text-cyan-300">ใช้งานกล้อง AR:</strong> ชูมือหน้ากล้อง และใช้นิ้วชี้จีบกับนิ้วโป้ง 👌 เพื่อหยิบอุปกรณ์ แล้วลากไปวางในตะกร้าคำตอบ</p>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">2</div>
+                        <p><strong class="text-cyan-300">สัมผัส / เมาส์:</strong> สามารถคลิกซ้ายลาก หรือใช้นิ้วแตะลากอุปกรณ์เข้าตะกร้าได้เช่นกัน</p>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">3</div>
+                        <p><strong class="text-cyan-300">กฎการเล่น:</strong> คัดแยกอุปกรณ์คอมพิวเตอร์ให้ตรงกับโจทย์เป้าหมายก่อนหมดเวลา!</p>
+                    </div>
+                </div>
+
+                <button id="btnPlayGame" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-base shadow-lg shadow-cyan-500/30 transition-all active:scale-95">
+                    เข้าใจแล้ว เริ่มเกมเลย!
+                </button>
+            </div>
+        </div>
+
+        <!-- HOST DASHBOARD MODAL -->
+        <div id="dashboardModal" class="hidden absolute inset-0 flex items-center justify-center p-4 glass-panel z-40">
+            <div class="max-w-2xl w-full bg-slate-900/95 rounded-3xl p-6 sm:p-8 border border-purple-500/40 shadow-2xl relative flex flex-col h-[85vh]">
+                <div class="flex items-center justify-between mb-4 pb-4 border-b border-white/10">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-300 flex items-center justify-center text-xl">
+                            <i class="fa-solid fa-chalkboard-user"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-xl sm:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-300 to-pink-300">
+                                แผงควบคุมผู้ดูแล (Host Dashboard)
+                            </h2>
+                            <p class="text-xs text-slate-400">ดูแลห้องและตรวจสอบคะแนนผู้เล่นแบบ Real-time</p>
+                        </div>
+                    </div>
+                    <button id="btnLeaveDashboard" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all">
+                        ปิดห้อง
+                    </button>
+                </div>
+
+                <!-- Room Code & Link -->
+                <div class="bg-slate-950 p-4 rounded-2xl border border-purple-500/30 mb-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div class="text-center sm:text-left">
+                        <span class="text-xs text-slate-400 block mb-1">รหัสห้อง (Room Code):</span>
+                        <div class="text-4xl font-mono font-extrabold text-amber-400 tracking-widest" id="dashRoomCode">------</div>
+                    </div>
+                    <button id="btnCopyDashLink" class="px-5 py-3 rounded-xl bg-purple-600/80 hover:bg-purple-600 text-white font-bold text-sm flex items-center gap-2 transition-all active:scale-95 shadow">
+                        <i class="fa-solid fa-link"></i>
+                        <span id="copyDashBtnText">คัดลอกลิงก์เชิญผู้เล่น</span>
+                    </button>
+                </div>
+
+                <!-- Player List -->
+                <div class="flex-1 overflow-hidden flex flex-col bg-slate-950/50 rounded-2xl border border-white/5 p-4 mb-5">
+                    <div class="flex items-center justify-between mb-3 text-xs text-slate-400 px-2">
+                        <span>รายชื่อผู้เล่นที่เข้าร่วม</span>
+                        <span id="playerCountText">จำนวน: 0 คน</span>
+                    </div>
+                    <div id="dashboardPlayerList" class="flex-1 overflow-y-auto space-y-2 pr-2">
+                        <!-- Player items will be injected here -->
+                        <div class="text-center text-slate-500 text-sm py-10 italic">กำลังรอผู้เล่นเข้าร่วม...</div>
+                    </div>
+                </div>
+
+                <button id="btnStartFromDashboard" disabled class="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-pink-600 opacity-50 cursor-not-allowed text-white font-bold text-base shadow-lg transition-all flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-play"></i>
+                    <span>รอผู้เล่นเข้าร่วมเพื่อเริ่มเกม...</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- PLAYER LOBBY MODAL (Waiting Room) -->
+        <div id="lobbyModal" class="hidden absolute inset-0 flex items-center justify-center p-4 glass-panel z-40">
+            <div class="max-w-md w-full bg-slate-900/95 rounded-3xl p-6 sm:p-8 border border-blue-500/40 shadow-2xl text-center relative">
+                <div class="w-16 h-16 rounded-full bg-blue-500/20 border border-blue-500/40 text-blue-300 flex items-center justify-center text-3xl mx-auto mb-4 animate-pulse">
+                    <i class="fa-solid fa-hourglass-half"></i>
+                </div>
+                <h2 class="text-xl sm:text-2xl font-bold text-white mb-2">
+                    ห้องรอเตรียมตัว (Lobby)
+                </h2>
+                <p class="text-sm text-slate-300 mb-6" id="lobbyWaitText">กำลังรอผู้ดูแลห้องกดเริ่มเกม...</p>
+
+                <div class="bg-slate-950 p-4 rounded-2xl border border-blue-500/30 mb-6">
+                    <span class="text-xs text-slate-400">คุณอยู่ในห้องรหัส:</span>
+                    <div class="text-2xl font-mono font-bold text-cyan-400 mt-1" id="lobbyRoomCode">------</div>
+                </div>
+
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden mb-6">
+                    <div class="h-full bg-blue-500 w-full origin-left animate-[pulse_1.5s_ease-in-out_infinite]"></div>
+                </div>
+
+                <button id="btnLeaveRoom" class="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm transition-all">
+                    ออกจากห้อง
+                </button>
+            </div>
+        </div>
+
+        <!-- GAME OVER / VICTORY MODAL -->
+        <div id="gameOverModal" class="hidden absolute inset-0 flex items-center justify-center p-4 glass-panel z-40">
+            <div class="max-w-md w-full bg-slate-900/95 rounded-3xl p-6 sm:p-8 border border-rose-500/40 shadow-2xl text-center">
+                <div id="endIconContainer" class="w-16 h-16 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-3xl mx-auto mb-4 border border-rose-500/30">
+                    <i id="endIcon" class="fa-solid fa-heart-crack"></i>
+                </div>
+                <h2 id="endTitle" class="text-2xl sm:text-3xl font-extrabold text-white mb-1">จบการแข่งขัน!</h2>
+                <p id="endSubtitle" class="text-xs sm:text-sm text-slate-300 mb-6">คุณทำดีที่สุดแล้ว ลองใหม่อีกครั้งเพื่อทำคะแนนให้สูงขึ้น</p>
+
+                <div class="bg-slate-950 p-4 rounded-2xl border border-white/10 mb-6 space-y-2 text-sm">
+                    <div class="flex justify-between items-center text-slate-300">
+                        <span>คะแนนรวม:</span>
+                        <span id="finalScore" class="font-extrabold text-2xl text-amber-400 font-mono">0</span>
+                    </div>
+                    <div class="flex justify-between items-center text-slate-400 text-xs">
+                        <span>ด่านที่ผ่าน:</span>
+                        <span id="finalLevels" class="font-bold text-white">0/15</span>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button id="btnBackToHome" class="w-1/2 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm transition-all">
+                        กลับหน้าหลัก
+                    </button>
+                    <button id="btnRestart" class="w-1/2 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-lg transition-all">
+                        เล่นอีกครั้ง
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, setDoc, updateDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        /* Global Firebase & Game Constants */
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'computer-parts-ar-game';
+        
+        let firebaseConfig = null;
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                // Safely parse only if it's a non-empty string, otherwise use the object if it's already parsed
+                firebaseConfig = typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config;
+            }
+        } catch (e) {
+            console.warn("Firebase config parsing error (running in local/mock environment):", e);
+        }
+        
+        let db = null;
+        let auth = null;
+        let currentUserId = null;
+        let playerName = "ผู้เล่นทั่วไป";
+
+        if (firebaseConfig) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+            } catch(e) {
+                console.warn("Firebase config setup warning:", e);
+            }
+        }
+
+        const GAME_LEVELS = [
+            {
+                level: 1,
+                targetCategory: 'INPUT',
+                targetTitle: 'อุปกรณ์รับข้อมูล (Input Unit)',
+                hint: 'เลือกอุปกรณ์ที่ทำหน้าที่รับข้อมูลหรือคำสั่งเข้าสู่คอมพิวเตอร์',
+                items: [
+                    { id: 'keyboard', name: 'คีย์บอร์ด (Keyboard)', category: 'INPUT', icon: '⌨️' },
+                    { id: 'monitor', name: 'จอภาพ (Monitor)', category: 'OUTPUT', icon: '🖥️' },
+                    { id: 'speaker', name: 'ลำโพง (Speaker)', category: 'OUTPUT', icon: '🔊' },
+                    { id: 'hdd', name: 'ฮาร์ดดิสก์ (Hard Disk)', category: 'STORAGE', icon: '💾' }
+                ]
+            },
+            {
+                level: 2,
+                targetCategory: 'OUTPUT',
+                targetTitle: 'อุปกรณ์แสดงผล (Output Unit)',
+                hint: 'เลือกอุปกรณ์ที่แสดงผลลัพธ์จากการประมวลผลให้ผู้ใช้เห็นหรือยิน',
+                items: [
+                    { id: 'mouse', name: 'เมาส์ (Mouse)', category: 'INPUT', icon: '🖱️' },
+                    { id: 'printer', name: 'เครื่องพิมพ์ (Printer)', category: 'OUTPUT', icon: '🖨️' },
+                    { id: 'cpu', name: 'ซีพียู (CPU)', category: 'PROCESSING', icon: '🔲' },
+                    { id: 'flashdrive', name: 'แฟลชไดรฟ์ (Flash Drive)', category: 'STORAGE', icon: '🔌' }
+                ]
+            },
+            {
+                level: 3,
+                targetCategory: 'PROCESSING',
+                targetTitle: 'อุปกรณ์ประมวลผล (Processing Unit)',
+                hint: 'เลือกสมองของคอมพิวเตอร์ที่คิดและคำนวณผลลัพธ์',
+                items: [
+                    { id: 'cpu', name: 'ซีพียู (CPU)', category: 'PROCESSING', icon: '🧠' },
+                    { id: 'webcam', name: 'เว็บแคม (Webcam)', category: 'INPUT', icon: '📷' },
+                    { id: 'headphone', name: 'หูฟัง (Headphones)', category: 'OUTPUT', icon: '🎧' },
+                    { id: 'ssd', name: 'เอสเอสดี (SSD)', category: 'STORAGE', icon: '💽' }
+                ]
+            },
+            {
+                level: 4,
+                targetCategory: 'STORAGE',
+                targetTitle: 'อุปกรณ์บันทึกข้อมูล (Storage Unit)',
+                hint: 'เลือกอุปกรณ์ที่ใช้บันทึกไฟล์หรือข้อมูลไว้อย่างถาวร',
+                items: [
+                    { id: 'ram', name: 'แรม (RAM)', category: 'MEMORY', icon: '📟' },
+                    { id: 'mic', name: 'ไมโครโฟน (Microphone)', category: 'INPUT', icon: '🎙️' },
+                    { id: 'hdd', name: 'ฮาร์ดดิสก์ (Hard Disk)', category: 'STORAGE', icon: '🗄️' },
+                    { id: 'projector', name: 'โปรเจกเตอร์ (Projector)', category: 'OUTPUT', icon: '📹' }
+                ]
+            },
+            {
+                level: 5,
+                targetCategory: 'INPUT',
+                targetTitle: 'อุปกรณ์รับข้อมูลประเภทเสียง/ภาพ (Input Unit)',
+                hint: 'เลือกอุปกรณ์ที่ส่งภาพหรือเสียงเข้าคอมพิวเตอร์',
+                items: [
+                    { id: 'microphone', name: 'ไมโครโฟน (Microphone)', category: 'INPUT', icon: '🎙️' },
+                    { id: 'monitor', name: 'จอภาพ (Monitor)', category: 'OUTPUT', icon: '🖥️' },
+                    { id: 'speaker', name: 'ลำโพง (Speaker)', category: 'OUTPUT', icon: '🔊' },
+                    { id: 'rom', name: 'รอม (ROM)', category: 'MEMORY', icon: '💎' }
+                ]
+            },
+            {
+                level: 6,
+                targetCategory: 'OUTPUT',
+                targetTitle: 'อุปกรณ์แสดงผลประเภทเสียง (Output Unit)',
+                hint: 'เลือกอุปกรณ์ที่เปล่งเสียงออกมาจากคอมพิวเตอร์',
+                items: [
+                    { id: 'scanner', name: 'สแกนเนอร์ (Scanner)', category: 'INPUT', icon: '📠' },
+                    { id: 'headphone', name: 'หูฟัง (Headphones)', category: 'OUTPUT', icon: '🎧' },
+                    { id: 'gpu', name: 'การ์ดจอ (GPU)', category: 'PROCESSING', icon: '🎮' },
+                    { id: 'sdcard', name: 'เอสดีการ์ด (SD Card)', category: 'STORAGE', icon: '🎴' }
+                ]
+            },
+            {
+                level: 7,
+                targetCategory: 'INPUT',
+                targetTitle: 'อุปกรณ์วาด/สแกนภาพ (Input Unit)',
+                hint: 'เลือกอุปกรณ์ที่ใช้วาดรูปหรือแปลงภาพกระดาษเข้าคอมพิวเตอร์',
+                items: [
+                    { id: 'drawing_tablet', name: 'เมาส์ปากกา (Drawing Tablet)', category: 'INPUT', icon: '🖊️' },
+                    { id: 'plotter', name: 'พล็อตเตอร์ (Plotter)', category: 'OUTPUT', icon: '📐' },
+                    { id: 'power_supply', name: 'พาวเวอร์ซัพพลาย (Power Supply)', category: 'POWER', icon: '⚡' },
+                    { id: 'dvd', name: 'แผ่น DVD', category: 'STORAGE', icon: '💿' }
+                ]
+            },
+            {
+                level: 8,
+                targetCategory: 'STORAGE',
+                targetTitle: 'ความจำพกพาขนาดเล็ก (Portable Storage)',
+                hint: 'เลือกอุปกรณ์เก็บข้อมูลขนาดเล็กพกพาสะดวก',
+                items: [
+                    { id: 'flashdrive', name: 'แฟลชไดรฟ์ (Flash Drive)', category: 'STORAGE', icon: '🔌' },
+                    { id: 'joystick', name: 'จอยสติ๊ก (Joystick)', category: 'INPUT', icon: '🕹️' },
+                    { id: 'monitor', name: 'จอภาพ (Monitor)', category: 'OUTPUT', icon: '🖥' },
+                    { id: 'motherboard', name: 'เมนบอร์ด (Motherboard)', category: 'SYSTEM', icon: '📟' }
+                ]
+            },
+            {
+                level: 9,
+                targetCategory: 'PROCESSING',
+                targetTitle: 'การ์ดเร่งความเร็วประมวลผลกราฟิก (GPU)',
+                hint: 'เลือกอุปกรณ์ที่ช่วยประมวลผลภาพ 3D และการเล่นเกม',
+                items: [
+                    { id: 'gpu', name: 'การ์ดแสดงผล (GPU Graphics Card)', category: 'PROCESSING', icon: '🎞️' },
+                    { id: 'barcode_reader', name: 'เครื่องสแกนบาร์โค้ด', category: 'INPUT', icon: '📱' },
+                    { id: 'printer', name: 'เครื่องพิมพ์ (Printer)', category: 'OUTPUT', icon: '🖨️' },
+                    { id: 'ext_hdd', name: 'ฮาร์ดดิสก์พกพา (External HDD)', category: 'STORAGE', icon: '📦' }
+                ]
+            },
+            {
+                level: 10,
+                targetCategory: 'INPUT',
+                targetTitle: 'อุปกรณ์ควบคุมการเล่นเกม (Gaming Input)',
+                hint: 'เลือกอุปกรณ์ที่ใช้บังคับทิศทางในการเล่นเกม',
+                items: [
+                    { id: 'gamepad', name: 'จอยเกม (Gamepad)', category: 'INPUT', icon: '🎮' },
+                    { id: 'speaker', name: 'ลำโพง (Speaker)', category: 'OUTPUT', icon: '🔊' },
+                    { id: 'mainboard', name: 'เมนบอร์ด (Mainboard)', category: 'SYSTEM', icon: '🟫' },
+                    { id: 'cloud', name: 'ระบบคลาวด์ (Cloud Storage)', category: 'STORAGE', icon: '☁️' }
+                ]
+            },
+            {
+                level: 11,
+                targetCategory: 'OUTPUT',
+                targetTitle: 'อุปกรณ์ฉายภาพขนาดใหญ่ (Output Display)',
+                hint: 'เลือกอุปกรณ์ฉายภาพขึ้นฉากรับภาพขนาดใหญ่',
+                items: [
+                    { id: 'projector', name: 'เครื่องโปรเจกเตอร์ (Projector)', category: 'OUTPUT', icon: '📹' },
+                    { id: 'webcam', name: 'กล้องเว็บแคม (Webcam)', category: 'INPUT', icon: '📷' },
+                    { id: 'ram', name: 'แรม (RAM)', category: 'MEMORY', icon: '📟' },
+                    { id: 'usb_hub', name: 'ยูเอสบีฮับ (USB Hub)', category: 'ACCESSORY', icon: '🔗' }
+                ]
+            },
+            {
+                level: 12,
+                targetCategory: 'STORAGE',
+                targetTitle: 'สื่อบันทึกข้อมูลแบบจานแสง (Optical Storage)',
+                hint: 'เลือกอุปกรณ์เก็บข้อมูลทรงกลมที่ใช้องค์ประกอบแสงเลเซอร์อ่าน',
+                items: [
+                    { id: 'bluray', name: 'แผ่นบลูเรย์/ซีดี (CD/DVD/Blu-ray)', category: 'STORAGE', icon: '💿' },
+                    { id: 'trackball', name: 'แทร็กบอล (Trackball Mouse)', category: 'INPUT', icon: '🪀' },
+                    { id: 'fax', name: 'เครื่องแฟกซ์ (Fax Machine)', category: 'OUTPUT', icon: '📠' },
+                    { id: 'soundcard', name: 'การ์ดเสียง (Sound Card)', category: 'PROCESSING', icon: '📻' }
+                ]
+            },
+            {
+                level: 13,
+                targetCategory: 'INPUT',
+                targetTitle: 'อุปกรณ์สัมผัสหน้าจอ (Touch Input)',
+                hint: 'เลือกอุปกรณ์หรือหน้าจอที่รองรับการแตะสั่งการด้วยนิ้วมือ',
+                items: [
+                    { id: 'touchscreen', name: 'จอสัมผัส (Touch Screen)', category: 'INPUT', icon: '📱' },
+                    { id: 'earphone', name: 'หูฟังเอียร์บัด', category: 'OUTPUT', icon: '🎧' },
+                    { id: 'powerbank', name: 'เพาเวอร์แบงก์', category: 'POWER', icon: '🔋' },
+                    { id: 'tape', name: 'เทปบันทึกข้อมูล', category: 'STORAGE', icon: '📼' }
+                ]
+            },
+            {
+                level: 14,
+                targetCategory: 'OUTPUT',
+                targetTitle: 'อุปกรณ์พิมพ์งานเขียนแบบช่าง (Plotter Output)',
+                hint: 'เลือกเครื่องพิมพ์ขนาดใหญ่พิเศษสำหรับงานวิศวกรรม/สถาปัตย์',
+                items: [
+                    { id: 'plotter', name: 'พล็อตเตอร์ (Plotter)', category: 'OUTPUT', icon: '📐' },
+                    { id: 'mic', name: 'ไมโครโฟนตั้งโต๊ะ', category: 'INPUT', icon: '🎙️' },
+                    { id: 'cpu_fan', name: 'พัดลมซีพียู (CPU Fan)', category: 'COOLING', icon: '❄️' },
+                    { id: 'ssd_m2', name: 'เอสเอสดี M.2 (NVMe SSD)', category: 'STORAGE', icon: '⚡' }
+                ]
+            },
+            {
+                level: 15,
+                targetCategory: 'STORAGE',
+                targetTitle: 'อุปกรณ์จัดเก็บข้อมูลความเร็วสูงสุด (High Speed Storage)',
+                hint: 'เลือกอุปกรณ์เก็บข้อมูลความเร็วสูงแบบไม่มีชิ้นส่วนเคลื่อนที่',
+                items: [
+                    { id: 'nvme_ssd', name: 'เอสเอสดี SSD M.2 (NVMe)', category: 'STORAGE', icon: '💽' },
+                    { id: 'keyboard_mech', name: 'คีย์บอร์ดกลไก (Mechanical Keyboard)', category: 'INPUT', icon: '⌨️' },
+                    { id: 'monitor_4k', name: 'จอภาพ 4K (4K Monitor)', category: 'OUTPUT', icon: '🖥️' },
+                    { id: 'cpu_i9', name: 'หน่วยประมวลผลระดับสูง (High CPU)', category: 'PROCESSING', icon: '🧠' }
+                ]
+            }
+        ];
+
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+            }
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+            playCorrect() {
+                this.init();
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.2); // A5
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.25);
+            }
+            playWrong() {
+                this.init();
+                if (!this.ctx) return;
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(180, now);
+                osc.frequency.linearRampToValueAtTime(110, now + 0.3);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            }
+            playVictory() {
+                this.init();
+                if (!this.ctx) return;
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    const now = this.ctx.currentTime + idx * 0.12;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.25);
+                });
+            }
+        }
+        const audioFX = new SoundFX();
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = 'MENU'; // 'MENU', 'PLAYING', 'GAMEOVER', 'VICTORY'
+        let currentLevelIndex = 0;
+        let score = 0;
+        let lives = 3;
+        let timerSeconds = 30;
+        let timerInterval = null;
+
+        // Interactive item position objects
+        let activeItems = [];
+        let draggedItem = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // Target Basket Coordinates
+        let basketZone = { x: 0, y: 0, width: 0, height: 0 };
+
+        // Hand pinch tracking state
+        let cursorPosition = { x: -100, y: -100 };
+        let isPinching = false;
+        let wasPinching = false;
+
+        // Particle system for visual feedback
+        let particles = [];
+
+        // Multiplayer state
+        let isMultiplayer = false;
+        let isHostDashboard = false; // เปลี่ยนจาก isHost เป็น isHostDashboard
+        let currentRoomId = null;
+        let roomUnsubscribe = null;
+        let roomData = null;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // Recalculate target basket zone at the bottom middle
+            const bWidth = Math.min(canvas.width * 0.7, 450);
+            const bHeight = 110;
+            basketZone = {
+                x: (canvas.width - bWidth) / 2,
+                y: canvas.height - bHeight - 25,
+                width: bWidth,
+                height: bHeight
+            };
+
+            if (gameState === 'PLAYING') {
+                repositionLevelItems();
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function startLevel(index) {
+            currentLevelIndex = index;
+            const levelData = GAME_LEVELS[currentLevelIndex];
+            
+            // UI elements update
+            document.getElementById('levelBadge').innerText = `ด่าน ${index + 1}/${GAME_LEVELS.length}`;
+            document.getElementById('targetText').innerText = levelData.targetTitle;
+
+            // Reset level timer
+            clearInterval(timerInterval);
+            timerSeconds = 30;
+            document.getElementById('timerText').innerText = timerSeconds;
+
+            timerInterval = setInterval(() => {
+                if (gameState === 'PLAYING') {
+                    timerSeconds--;
+                    document.getElementById('timerText').innerText = timerSeconds;
+                    if (timerSeconds <= 0) {
+                        handleTimeOut();
+                    }
+                }
+            }, 1000);
+
+            repositionLevelItems();
+            updateHUD();
+        }
+
+        function repositionLevelItems() {
+            const levelData = GAME_LEVELS[currentLevelIndex];
+            const items = levelData.items;
+
+            const cols = 2;
+            const rows = 2;
+            const cardW = Math.min(canvas.width * 0.38, 180);
+            const cardH = 100;
+            const gapX = (canvas.width - cols * cardW) / 3;
+            const startY = 90;
+
+            activeItems = items.map((item, idx) => {
+                const col = idx % cols;
+                const row = Math.floor(idx / cols);
+                const initX = gapX + col * (cardW + gapX);
+                const initY = startY + row * (cardH + 20);
+
+                return {
+                    ...item,
+                    x: initX,
+                    y: initY,
+                    origX: initX,
+                    origY: initY,
+                    width: cardW,
+                    height: cardH,
+                    isDragging: false
+                };
+            });
+        }
+
+        function updateHUD() {
+            document.getElementById('scoreText').innerText = score;
+            document.getElementById('livesText').innerText = lives;
+        }
+
+        function checkItemDrop(item) {
+            const itemCenterX = item.x + item.width / 2;
+            const itemCenterY = item.y + item.height / 2;
+
+            // Test if item center fell into the basket zone
+            if (itemCenterX >= basketZone.x && itemCenterX <= basketZone.x + basketZone.width &&
+                itemCenterY >= basketZone.y && itemCenterY <= basketZone.y + basketZone.height) {
+                
+                const currentLevel = GAME_LEVELS[currentLevelIndex];
+                if (item.category === currentLevel.targetCategory) {
+                    // Correct Choice!
+                    audioFX.playCorrect();
+                    score += 100 + timerSeconds * 5;
+                    createParticles(itemCenterX, itemCenterY, '#34d399', 30);
+                    updateHUD();
+                    updateMultiplayerProgress();
+
+                    if (currentLevelIndex < GAME_LEVELS.length - 1) {
+                        currentLevelIndex++;
+                        startLevel(currentLevelIndex);
+                        updateMultiplayerProgress();
+                    } else {
+                        triggerVictory();
+                    }
+                } else {
+                    // Incorrect Choice!
+                    audioFX.playWrong();
+                    lives--;
+                    createParticles(itemCenterX, itemCenterY, '#f43f5e', 25);
+                    updateHUD();
+                    updateMultiplayerProgress();
+                    resetItemPosition(item);
+
+                    if (lives <= 0) {
+                        triggerGameOver();
+                    }
+                }
+            } else {
+                // Return smoothly to grid position
+                resetItemPosition(item);
+            }
+        }
+
+        function resetItemPosition(item) {
+            item.x = item.origX;
+            item.y = item.origY;
+            item.isDragging = false;
+        }
+
+        function handleTimeOut() {
+            audioFX.playWrong();
+            lives--;
+            updateHUD();
+            updateMultiplayerProgress();
+
+            if (lives <= 0) {
+                triggerGameOver();
+            } else {
+                // Restart current level
+                startLevel(currentLevelIndex);
+            }
+        }
+
+        function createParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    radius: Math.random() * 5 + 2,
+                    color: color,
+                    alpha: 1,
+                    life: 1.0
+                });
+            }
+        }
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.02;
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        function renderCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Subtle grid background effect
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+            ctx.lineWidth = 1;
+            const gridSize = 40;
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            if (gameState === 'PLAYING') {
+                // 1. Draw Target Basket Zone
+                ctx.save();
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                ctx.strokeStyle = '#06b6d4';
+                ctx.lineWidth = 3;
+                
+                // Rounded Rectangle for Basket
+                const r = 20;
+                const bx = basketZone.x;
+                const by = basketZone.y;
+                const bw = basketZone.width;
+                const bh = basketZone.height;
+
+                ctx.beginPath();
+                ctx.moveTo(bx + r, by);
+                ctx.lineTo(bx + bw - r, by);
+                ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+                ctx.lineTo(bx + bw, by + bh - r);
+                ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+                ctx.lineTo(bx + r, by + bh);
+                ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+                ctx.lineTo(bx, by + r);
+                ctx.quadraticCurveTo(bx, by, bx + r, by);
+                ctx.closePath();
+
+                ctx.fill();
+                ctx.stroke();
+
+                // Basket Text Target Hint
+                const levelData = GAME_LEVELS[currentLevelIndex];
+                ctx.fillStyle = '#67e8f9';
+                ctx.font = 'bold 15px Kanit, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(`📥 ลากอุปกรณ์ที่เป็น "${levelData.targetCategory}" มาวางที่นี่`, bx + bw / 2, by + 42);
+
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '12px Kanit, sans-serif';
+                ctx.fillText(levelData.hint, bx + bw / 2, by + 70);
+                ctx.restore();
+
+                // 2. Draw Interactive Cards
+                activeItems.forEach(item => {
+                    ctx.save();
+                    
+                    // Shadow effect when dragging
+                    if (item.isDragging) {
+                        ctx.shadowColor = 'rgba(6, 182, 212, 0.6)';
+                        ctx.shadowBlur = 20;
+                    }
+
+                    // Card Body
+                    ctx.fillStyle = item.isDragging ? 'rgba(30, 41, 59, 0.95)' : 'rgba(15, 23, 42, 0.85)';
+                    ctx.strokeStyle = item.isDragging ? '#22d3ee' : 'rgba(255, 255, 255, 0.15)';
+                    ctx.lineWidth = item.isDragging ? 3 : 1.5;
+
+                    const cr = 16;
+                    ctx.beginPath();
+                    ctx.moveTo(item.x + cr, item.y);
+                    ctx.lineTo(item.x + item.width - cr, item.y);
+                    ctx.quadraticCurveTo(item.x + item.width, item.y, item.x + item.width, item.y + cr);
+                    ctx.lineTo(item.x + item.width, item.y + item.height - cr);
+                    ctx.quadraticCurveTo(item.x + item.width, item.y + item.height, item.x + item.width - cr, item.y + item.height);
+                    ctx.lineTo(item.x + cr, item.y + item.height);
+                    ctx.quadraticCurveTo(item.x, item.y + item.height, item.x, item.y + item.height - cr);
+                    ctx.lineTo(item.x, item.y + cr);
+                    ctx.quadraticCurveTo(item.x, item.y, item.x + cr, item.y);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Icon & Text inside card
+                    ctx.font = '28px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(item.icon, item.x + item.width / 2, item.y + 42);
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 12px Kanit, sans-serif';
+                    ctx.fillText(item.name, item.x + item.width / 2, item.y + 75);
+
+                    ctx.restore();
+                });
+
+                // Update and render particles
+                updateParticles();
+                drawParticles();
+
+                // 3. Draw Hand / Pinch Tracking Pointer
+                if (cursorPosition.x > 0 && cursorPosition.y > 0) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(cursorPosition.x, cursorPosition.y, isPinching ? 12 : 18, 0, Math.PI * 2);
+                    ctx.fillStyle = isPinching ? 'rgba(244, 63, 94, 0.8)' : 'rgba(34, 211, 238, 0.5)';
+                    ctx.fill();
+                    ctx.strokeStyle = isPinching ? '#ffffff' : '#06b6d4';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    if (isPinching) {
+                        ctx.beginPath();
+                        ctx.arc(cursorPosition.x, cursorPosition.y, 22, 0, Math.PI * 2);
+                        ctx.strokeStyle = 'rgba(244, 63, 94, 0.4)';
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+            }
+
+            requestAnimationFrame(renderCanvas);
+        }
+
+        async function initMediaPipe() {
+            const videoElement = document.getElementById('webcam');
+            const cameraStatusDot = document.getElementById('cameraStatusDot');
+            const retryBtn = document.getElementById('btnRetryCamera');
+
+            // Verify MediaDevices support before requesting permission
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                console.warn("MediaDevices API not supported in this browser or environment.");
+                showCameraFallback("ไม่พบกล้อง: สลับเป็นโหมดสัมผัส/เมาส์เรียบร้อย");
+                return;
+            }
+
+            try {
+                // ขออนุญาตเข้าถึงกล้องด้วยตัวเองก่อน เพื่อดักจับ NotAllowedError อย่างนุ่มนวล
+                // ป้องกันไม่ให้ MediaPipe แสดง Error สีแดงใน Console
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                // ปิด stream ทันทีเมื่อได้รับสิทธิ์ เพื่อให้ MediaPipe เป็นคนเปิดจัดการต่อ
+                stream.getTracks().forEach(track => track.stop());
+            } catch (err) {
+                console.warn("Camera permission denied by user or system:", err.name, err.message);
+                showCameraFallback("ไม่ได้รับสิทธิ์กล้อง: สลับเป็นโหมดสัมผัส/เมาส์ (เล่นได้ปกติ)");
+                return; // หยุดการทำงานส่วนกล้อง ไม่ต้องเรียกใช้งาน MediaPipe
+            }
+
+            try {
+                const hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+
+                hands.onResults((results) => {
+                    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                        const landmarks = results.multiHandLandmarks[0];
+
+                        // Index Finger Tip (#8) and Thumb Tip (#4)
+                        const indexTip = landmarks[8];
+                        const thumbTip = landmarks[4];
+
+                        // Map mirrored x coordinate to screen width
+                        const posX = (1 - indexTip.x) * canvas.width;
+                        const posY = indexTip.y * canvas.height;
+
+                        cursorPosition.x = posX;
+                        cursorPosition.y = posY;
+
+                        // Measure distance between index tip and thumb tip for pinch gesture
+                        const distance = Math.hypot((1 - indexTip.x) - (1 - thumbTip.x), indexTip.y - thumbTip.y);
+                        isPinching = distance < 0.08;
+
+                        handlePointerMove(posX, posY, isPinching);
+                    } else {
+                        cursorPosition = { x: -100, y: -100 };
+                        if (isPinching) {
+                            handlePointerUp();
+                        }
+                        isPinching = false;
+                    }
+                });
+
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        try {
+                            await hands.send({ image: videoElement });
+                        } catch (e) {
+                            console.warn("Error processing camera frame:", e);
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                await camera.start();
+                if (cameraStatusDot) {
+                    cameraStatusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0";
+                }
+                if (retryBtn) retryBtn.classList.add('hidden');
+                document.getElementById('trackingBannerText').innerText = "กล้องพร้อมใช้งาน: ใช้ท่านิ้วชี้จีบนิ้วโป้ง 👌 เพื่อหยิบอุปกรณ์";
+            } catch (err) {
+                console.warn("Camera access denied or failed to initialize:", err);
+                showCameraFallback("ไม่ได้รับสิทธิ์กล้อง: สลับเป็นโหมดสัมผัส/เมาส์ (เล่นได้ปกติ)");
+            }
+        }
+
+        function showCameraFallback(message) {
+            const cameraStatusDot = document.getElementById('cameraStatusDot');
+            const retryBtn = document.getElementById('btnRetryCamera');
+            if (cameraStatusDot) {
+                cameraStatusDot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0";
+            }
+            if (retryBtn) {
+                retryBtn.classList.remove('hidden');
+            }
+            document.getElementById('trackingBannerText').innerText = message;
+        }
+
+        function handlePointerMove(x, y, pinchState) {
+            if (gameState !== 'PLAYING') return;
+
+            // Trigger Drag Start on Pinch down
+            if (pinchState && !wasPinching) {
+                // Find top-most item clicked/pinched
+                for (let i = activeItems.length - 1; i >= 0; i--) {
+                    const item = activeItems[i];
+                    if (x >= item.x && x <= item.x + item.width &&
+                        y >= item.y && y <= item.y + item.height) {
+                        draggedItem = item;
+                        item.isDragging = true;
+                        dragOffsetX = x - item.x;
+                        dragOffsetY = y - item.y;
+                        break;
+                    }
+                }
+            } else if (!pinchState && wasPinching) {
+                // Trigger Release / Drop on Pinch release
+                handlePointerUp();
+            }
+
+            // Update position if dragging
+            if (draggedItem && pinchState) {
+                draggedItem.x = x - dragOffsetX;
+                draggedItem.y = y - dragOffsetY;
+            }
+
+            wasPinching = pinchState;
+        }
+
+        function handlePointerUp() {
+            if (draggedItem) {
+                checkItemDrop(draggedItem);
+                draggedItem = null;
+            }
+            wasPinching = false;
+        }
+
+        // Mouse Event Listeners
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            handlePointerMove(x, y, true);
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (e.buttons === 1 && draggedItem) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                draggedItem.x = x - dragOffsetX;
+                draggedItem.y = y - dragOffsetY;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => handlePointerUp());
+
+        // Touch Event Listeners
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                handlePointerMove(x, y, true);
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0 && draggedItem) {
+                const touch = e.touches[0];
+                const rect = canvas.getBoundingClientRect();
+                draggedItem.x = (touch.clientX - rect.left) - dragOffsetX;
+                draggedItem.y = (touch.clientY - rect.top) - dragOffsetY;
+            }
+        });
+
+        canvas.addEventListener('touchend', () => handlePointerUp());
+
+        function showToast(msg) {
+            const banner = document.getElementById('trackingBannerText');
+            banner.innerText = msg;
+            document.getElementById('trackingBanner').classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('trackingBanner').classList.add('hidden');
+            }, 3500);
+        }
+
+        function checkUrlForRoom() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const roomParam = urlParams.get('room');
+            if (roomParam) {
+                document.getElementById('joinRoomCodeInput').value = roomParam;
+                showToast(`พบลื่นก์เข้าร่วมห้อง: ${roomParam} กรุณากรอกชื่อแล้วกดเข้าร่วมห้อง`);
+            }
+        }
+
+        async function initAuthAndLeaderboard() {
+            if (!auth || !db) {
+                renderDummyLeaderboard();
+                return;
+            }
+            try {
+                if (typeof __initial_auth_token !== 'undefined') {
+                    const userCred = await signInWithCustomToken(auth, __initial_auth_token);
+                    currentUserId = userCred.user.uid;
+                } else {
+                    const userCred = await signInAnonymously(auth);
+                    currentUserId = userCred.user.uid;
+                }
+
+                // Real-time Leaderboard Listener
+                const lbRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                onSnapshot(lbRef, (snapshot) => {
+                    const scores = [];
+                    snapshot.forEach(doc => scores.push(doc.data()));
+                    scores.sort((a, b) => b.score - a.score);
+                    const top5 = scores.slice(0, 5);
+
+                    const lbContainer = document.getElementById('leaderboardList');
+                    if (top5.length === 0) {
+                        lbContainer.innerHTML = '<div class="text-center text-slate-400 text-xs py-2">ยังไม่มีข้อมูลคะแนน มาร่วมประลองเป็นคนแรกเลย!</div>';
+                        return;
+                    }
+
+                    lbContainer.innerHTML = top5.map((entry, idx) => `
+                        <div class="flex items-center justify-between p-2 rounded-xl bg-slate-800/60 border border-white/5 text-xs">
+                            <div class="flex items-center gap-2">
+                                <span class="flex items-center justify-center w-5 h-5 rounded-full ${idx === 0 ? 'bg-amber-400 text-amber-950 font-extrabold' : idx === 1 ? 'bg-slate-300 text-slate-900 font-bold' : idx === 2 ? 'bg-orange-400 text-orange-950 font-bold' : 'bg-slate-700 text-slate-300'} text-[10px]">
+                                    ${idx + 1}
+                                </span>
+                                <span class="font-semibold text-white truncate max-w-[110px]">${escapeHtml(entry.name || 'ผู้เล่น')}</span>
+                            </div>
+                            <span class="font-bold text-amber-400 font-mono">${entry.score || 0} คะแนน</span>
+                        </div>
+                    `).join('');
+                }, (err) => {
+                    console.warn("Leaderboard error:", err);
+                    renderDummyLeaderboard();
+                });
+            } catch(e) {
+                console.warn("Auth failed:", e);
+                renderDummyLeaderboard();
+            }
+        }
+
+        function renderDummyLeaderboard() {
+            const dummyData = [
+                { name: 'น้องก้อง ป.5', score: 1450 },
+                { name: 'น้องฟ้า ป.6', score: 1200 },
+                { name: 'น้องตั้ม ป.4', score: 980 }
+            ];
+            const lbContainer = document.getElementById('leaderboardList');
+            lbContainer.innerHTML = dummyData.map((entry, idx) => `
+                <div class="flex items-center justify-between p-2 rounded-xl bg-slate-800/60 border border-white/5 text-xs">
+                    <div class="flex items-center gap-2">
+                        <span class="flex items-center justify-center w-5 h-5 rounded-full ${idx === 0 ? 'bg-amber-400 text-amber-950 font-extrabold' : 'bg-slate-700 text-slate-300'} text-[10px]">
+                            ${idx + 1}
+                        </span>
+                        <span class="font-semibold text-white">${entry.name}</span>
+                    </div>
+                    <span class="font-bold text-amber-400 font-mono">${entry.score} คะแนน</span>
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        }
+
+        async function saveScoreToLeaderboard() {
+            if (!db || score <= 0) return;
+            try {
+                const lbRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                await addDoc(lbRef, {
+                    name: playerName,
+                    score: score,
+                    timestamp: Date.now()
+                });
+            } catch (err) {
+                console.warn("Failed to save score:", err);
+            }
+        }
+
+        function triggerGameOver() {
+            gameState = 'GAMEOVER';
+            clearInterval(timerInterval);
+
+            document.getElementById('endIconContainer').className = "w-16 h-16 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-3xl mx-auto mb-4 border border-rose-500/30";
+            document.getElementById('endIcon').className = "fa-solid fa-heart-crack";
+            document.getElementById('endTitle').innerText = "เกมสิ้นสุด!";
+            document.getElementById('endSubtitle').innerText = "พลังชีวิตหมดแล้ว ลองฝึกซ้อมอีกครั้งเพื่อทำคะแนนให้สูงขึ้น!";
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('finalLevels').innerText = `${currentLevelIndex}/${GAME_LEVELS.length}`;
+
+            document.getElementById('gameOverModal').classList.remove('hidden');
+            saveScoreToLeaderboard();
+        }
+
+        function triggerVictory() {
+            gameState = 'VICTORY';
+            clearInterval(timerInterval);
+            audioFX.playVictory();
+
+            document.getElementById('endIconContainer').className = "w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-3xl mx-auto mb-4 border border-amber-500/30 animate-bounce";
+            document.getElementById('endIcon').className = "fa-solid fa-trophy text-amber-400";
+            document.getElementById('endTitle').innerText = "ยินดีด้วย คุณชนะเกม!";
+            document.getElementById('endSubtitle').innerText = "คุณจำแนกอุปกรณ์คอมพิวเตอร์ได้ถูกต้องครบถ้วนทุกด่าน!";
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('finalLevels').innerText = `${GAME_LEVELS.length}/${GAME_LEVELS.length}`;
+
+            document.getElementById('gameOverModal').classList.remove('hidden');
+            saveScoreToLeaderboard();
+        }
+
+        async function startGame() {
+            // โฮสต์ไม่ต้องเข้าสู่หน้าเล่นเกม
+            if (isHostDashboard) return;
+
+            score = 0;
+            lives = 3;
+            currentLevelIndex = 0;
+            gameState = 'PLAYING';
+
+            document.getElementById('startModal').classList.add('hidden');
+            document.getElementById('tutorialModal').classList.add('hidden');
+            document.getElementById('lobbyModal').classList.add('hidden');
+            document.getElementById('gameOverModal').classList.add('hidden');
+            document.getElementById('hudOverlay').classList.remove('hidden');
+            document.getElementById('trackingBanner').classList.remove('hidden');
+
+            if (isMultiplayer) {
+                // ซ่อน Opponent Hud แบบเก่า เพราะในโหมดผู้เล่นเราจะโฟกัสที่เกมตัวเอง
+                document.getElementById('opponentHud').classList.add('hidden');
+                document.getElementById('opponentHud').classList.remove('flex');
+                updateMultiplayerProgress();
+            } else {
+                document.getElementById('opponentHud').classList.add('hidden');
+                document.getElementById('opponentHud').classList.remove('flex');
+            }
+
+            // เริ่มเปิดกล้องเมื่อเข้าสู่เกมจริงๆ เท่านั้น
+            showToast("กำลังเริ่มระบบกล้อง AR...");
+            await initMediaPipe();
+            renderCanvas();
+            startLevel(0);
+        }
+
+        document.getElementById('btnStartApp').addEventListener('click', () => {
+            const input = document.getElementById('playerNameInput');
+            const warning = document.getElementById('nameWarning');
+            const nameVal = input.value.trim();
+
+            if (!nameVal) {
+                warning.classList.remove('hidden');
+                input.focus();
+                return;
+            }
+
+            warning.classList.add('hidden');
+            playerName = nameVal;
+            isMultiplayer = false;
+            isHostDashboard = false;
+
+            document.getElementById('startModal').classList.add('hidden');
+            document.getElementById('tutorialModal').classList.remove('hidden');
+        });
+
+        document.getElementById('btnCreateRoom').addEventListener('click', () => {
+            const input = document.getElementById('playerNameInput');
+            const warning = document.getElementById('nameWarning');
+            const nameVal = input.value.trim();
+
+            if (!nameVal) {
+                warning.classList.remove('hidden');
+                input.focus();
+                return;
+            }
+
+            warning.classList.add('hidden');
+            playerName = nameVal;
+            createRoom();
+        });
+
+        document.getElementById('btnJoinRoom').addEventListener('click', () => {
+            const input = document.getElementById('playerNameInput');
+            const warning = document.getElementById('nameWarning');
+            const roomInput = document.getElementById('joinRoomCodeInput');
+            const nameVal = input.value.trim();
+
+            if (!nameVal) {
+                warning.classList.remove('hidden');
+                input.focus();
+                return;
+            }
+
+            warning.classList.add('hidden');
+            playerName = nameVal;
+            joinRoom(roomInput.value);
+        });
+
+        document.getElementById('btnCopyDashLink').addEventListener('click', () => {
+            copyRoomUrl();
+            const copyBtnText = document.getElementById('copyDashBtnText');
+            copyBtnText.innerText = 'คัดลอกสำเร็จ!';
+            setTimeout(() => {
+                copyBtnText.innerText = 'คัดลอกลิงก์เชิญผู้เล่น';
+            }, 2500);
+        });
+
+        document.getElementById('btnLeaveRoom').addEventListener('click', () => {
+            if (roomUnsubscribe) roomUnsubscribe();
+            isMultiplayer = false;
+            currentRoomId = null;
+            document.getElementById('lobbyModal').classList.add('hidden');
+            document.getElementById('startModal').classList.remove('hidden');
+        });
+        
+        document.getElementById('btnLeaveDashboard').addEventListener('click', () => {
+            if (roomUnsubscribe) roomUnsubscribe();
+            isMultiplayer = false;
+            isHostDashboard = false;
+            currentRoomId = null;
+            document.getElementById('dashboardModal').classList.add('hidden');
+            document.getElementById('startModal').classList.remove('hidden');
+        });
+
+        document.getElementById('btnStartFromDashboard').addEventListener('click', async () => {
+            if (!isHostDashboard || !currentRoomId || !db) return;
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+            try {
+                await updateDoc(roomRef, { status: 'playing' });
+                document.getElementById('btnStartFromDashboard').innerText = "เกมกำลังดำเนินอยู่...";
+                document.getElementById('btnStartFromDashboard').disabled = true;
+            } catch (err) {
+                console.error("Failed to start room:", err);
+            }
+        });
+
+        document.getElementById('btnPlayGame').addEventListener('click', () => {
+            startGame();
+        });
+
+        document.getElementById('btnRestart').addEventListener('click', () => {
+            startGame();
+        });
+
+        document.getElementById('btnBackToHome').addEventListener('click', () => {
+            gameState = 'MENU';
+            document.getElementById('gameOverModal').classList.add('hidden');
+            document.getElementById('hudOverlay').classList.add('hidden');
+            document.getElementById('startModal').classList.remove('hidden');
+        });
+
+        document.getElementById('btnRetryCamera').addEventListener('click', () => {
+            initMediaPipe();
+        });
+
+        // ---------------- FIREBASE MULTIPLAYER LOGIC ----------------
+
+        async function createRoom() {
+            if (!db) {
+                showToast("ระบบฐานข้อมูลไม่พร้อมใช้งาน");
+                return;
+            }
+            const roomId = Math.floor(100000 + Math.random() * 900000).toString();
+            currentRoomId = roomId;
+            isMultiplayer = true;
+            isHostDashboard = true;
+
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            const initialRoomData = {
+                status: 'waiting',
+                createdAt: Date.now(),
+                hostId: currentUserId || 'host_anon',
+                players: {} // เปลี่ยนมาเก็บข้อมูลผู้เล่นใน Object
+            };
+
+            try {
+                await setDoc(roomRef, initialRoomData);
+                openDashboardModal(roomId);
+                listenToRoom(roomId);
+            } catch (err) {
+                console.error("Error creating room:", err);
+                showToast("เกิดข้อผิดพลาดในการสร้างห้อง");
+            }
+        }
+
+        async function joinRoom(roomId) {
+            if (!db) {
+                showToast("ระบบฐานข้อมูลไม่พร้อมใช้งาน");
+                return;
+            }
+            roomId = roomId.trim();
+            if (!roomId) {
+                showToast("กรุณากรอกรหัสห้อง 6 หลัก");
+                return;
+            }
+
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            try {
+                const docSnap = await getDoc(roomRef);
+                if (!docSnap.exists()) {
+                    showToast("ไม่พบรหัสห้องนี้ในระบบ!");
+                    return;
+                }
+
+                const data = docSnap.data();
+                if (data.status !== 'waiting') {
+                    showToast("ห้องนี้กำลังอยู่ในระหว่างแข่งขัน หรือปิดไปแล้ว!");
+                    return;
+                }
+
+                currentRoomId = roomId;
+                isMultiplayer = true;
+                isHostDashboard = false;
+
+                const uid = currentUserId || crypto.randomUUID();
+                
+                // เพิ่มผู้เล่นเข้าไปในระบบ
+                await updateDoc(roomRef, {
+                    [`players.${uid}`]: {
+                        name: playerName,
+                        score: 0,
+                        level: 0,
+                        lives: 3
+                    }
+                });
+
+                openLobbyModal(roomId);
+                listenToRoom(roomId);
+            } catch (err) {
+                console.error("Error joining room:", err);
+                showToast("ไม่สามารถเข้าร่วมห้องได้");
+            }
+        }
+
+        function listenToRoom(roomId) {
+            if (roomUnsubscribe) roomUnsubscribe();
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+
+            roomUnsubscribe = onSnapshot(roomRef, (snapshot) => {
+                if (!snapshot.exists()) return;
+                roomData = snapshot.data();
+
+                if (isHostDashboard) {
+                    // --- อัปเดตหน้า Dashboard ---
+                    const players = roomData.players || {};
+                    const playerKeys = Object.keys(players);
+                    
+                    document.getElementById('playerCountText').innerText = `จำนวน: ${playerKeys.length} คน`;
+                    const dashList = document.getElementById('dashboardPlayerList');
+                    
+                    if (playerKeys.length === 0) {
+                        dashList.innerHTML = '<div class="text-center text-slate-500 text-sm py-10 italic">กำลังรอผู้เล่นเข้าร่วม...</div>';
+                        document.getElementById('btnStartFromDashboard').disabled = true;
+                        document.getElementById('btnStartFromDashboard').classList.add('opacity-50', 'cursor-not-allowed');
+                    } else {
+                        // เรียงตามคะแนน
+                        const sortedPlayers = playerKeys.map(k => ({ id: k, ...players[k] })).sort((a, b) => b.score - a.score);
+                        
+                        dashList.innerHTML = sortedPlayers.map(p => `
+                            <div class="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-white/5">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm border border-purple-500/30">
+                                        <i class="fa-solid fa-user"></i>
+                                    </div>
+                                    <div>
+                                        <div class="font-bold text-white text-sm">${escapeHtml(p.name)}</div>
+                                        <div class="text-[10px] text-slate-400">ด่าน: ${p.level + 1} | ❤️ ${p.lives}</div>
+                                    </div>
+                                </div>
+                                <div class="font-bold text-amber-400 text-lg font-mono">${p.score}</div>
+                            </div>
+                        `).join('');
+
+                        // เปิดปุ่มให้กดเริ่มเกมได้ถ้ามีคนเข้าและเกมยังไม่เริ่ม
+                        if (roomData.status === 'waiting') {
+                            const startBtn = document.getElementById('btnStartFromDashboard');
+                            startBtn.disabled = false;
+                            startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                            startBtn.innerHTML = '<i class="fa-solid fa-play"></i><span>เริ่มเกมการแข่งขัน!</span>';
+                        }
+                    }
+                } else if (isMultiplayer) {
+                    // --- อัปเดตหน้า Player ---
+                    // ถ้าโฮสต์กดเริ่มเกม
+                    if (roomData.status === 'playing' && gameState !== 'PLAYING') {
+                        document.getElementById('lobbyModal').classList.add('hidden');
+                        startGame();
+                    }
+                }
+            }, (err) => {
+                console.warn("Room sync listener error:", err);
+            });
+        }
+
+        async function updateMultiplayerProgress() {
+            if (!isMultiplayer || !currentRoomId || !db || isHostDashboard) return;
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+            
+            const uid = currentUserId;
+            if (!uid) return;
+
+            try {
+                await updateDoc(roomRef, {
+                    [`players.${uid}.score`]: score,
+                    [`players.${uid}.level`]: currentLevelIndex,
+                    [`players.${uid}.lives`]: lives
+                });
+            } catch (err) {
+                console.warn("Failed to sync progress:", err);
+            }
+        }
+
+        function openDashboardModal(roomId) {
+            document.getElementById('startModal').classList.add('hidden');
+            document.getElementById('dashRoomCode').innerText = roomId;
+            document.getElementById('dashboardModal').classList.remove('hidden');
+        }
+
+        function openLobbyModal(roomId) {
+            document.getElementById('startModal').classList.add('hidden');
+            document.getElementById('lobbyRoomCode').innerText = roomId;
+            document.getElementById('lobbyModal').classList.remove('hidden');
+        }
+
+        function copyRoomUrl() {
+            const shareUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
+            const tempInput = document.createElement('input');
+            tempInput.value = shareUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+        }
+
+        window.onload = function() {
+            resizeCanvas();
+            // เอา initMediaPipe() และ renderCanvas() ออกจาก Onload เพื่อให้ทำเมื่อเริ่มเกมเท่านั้น
+            initAuthAndLeaderboard();
+            checkUrlForRoom();
+        };
+    </script>
+</body>
+</html>
